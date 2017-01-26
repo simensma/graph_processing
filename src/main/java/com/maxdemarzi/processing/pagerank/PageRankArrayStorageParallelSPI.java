@@ -11,8 +11,11 @@ import org.neo4j.kernel.api.ReadOperations;
 import org.neo4j.kernel.api.exceptions.EntityNotFoundException;
 import org.neo4j.kernel.impl.api.RelationshipVisitor;
 import org.neo4j.kernel.impl.core.ThreadToStatementContextBridge;
+import org.neo4j.logging.Log;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
@@ -39,24 +42,26 @@ public class PageRankArrayStorageParallelSPI implements PageRank {
 
     @Override
     public void compute(String label, String type, int iterations) {
+        iterations = 200;
 
         int[] src = new int[nodeCount];
         dst = new AtomicIntegerArray(nodeCount);
 
-        try ( Transaction tx = db.beginTx()) {
+        String[] labels = {"Profile", "Project"};
+        String[] types = { "FOLLOWS", "COMMENTED_ON", "LICENSED" };
 
+
+        try ( Transaction tx = db.beginTx()) {
             ThreadToStatementContextBridge ctx = this.db.getDependencyResolver().resolveDependency(ThreadToStatementContextBridge.class);
             ReadOperations ops = ctx.get().readOperations();
-            int labelId = ops.labelGetForName(label);
-            int typeId = ops.relationshipTypeGetForName(type);
+            Integer[] labelIds = Arrays.stream(labels).map(ops::labelGetForName).toArray(Integer[]::new);
+            Integer[] typeIds = Arrays.stream(types).map(ops::labelGetForName).toArray(Integer[]::new);
 
-            int[] degrees = computeDegrees(ops,labelId, typeId);
+            int[] degrees = computeDegrees(ops,labelIds, typeIds);
 
-            RelationshipVisitor<RuntimeException> visitor = new RelationshipVisitor<RuntimeException>() {
-                public void visit(long relId, int relTypeId, long startNode, long endNode) throws RuntimeException {
-                    if (relTypeId == typeId) {
-                        dst.addAndGet(((int) endNode),src[(int) startNode]);
-                    }
+            RelationshipVisitor<RuntimeException> visitor = (relId, relTypeId, startNode, endNode) -> {
+                if (Arrays.stream(typeIds).anyMatch(t -> t == relTypeId)) {
+                    dst.addAndGet(((int) endNode), src[(int) startNode]);
                 }
             };
 
@@ -64,11 +69,7 @@ public class PageRankArrayStorageParallelSPI implements PageRank {
                 startIteration(src, dst, degrees);
 
                 PrimitiveLongIterator rels = ops.relationshipsGetAll();
-                runOperations(pool, rels, relCount , ops, new OpsRunner() {
-                    public void run(int id) throws EntityNotFoundException {
-                        ops.relationshipVisit(id, visitor);
-                    }
-                });
+                runOperations(pool, rels, relCount , ops, id -> ops.relationshipVisit(id, visitor));
             }
             tx.success();
         } catch (EntityNotFoundException e) {
@@ -84,16 +85,40 @@ public class PageRankArrayStorageParallelSPI implements PageRank {
         }
     }
 
-    private int[] computeDegrees(ReadOperations ops, int labelId, int relationshipId) throws EntityNotFoundException {
+    private int[] computeDegrees(ReadOperations ops, Integer[] labelIds, Integer[] relationshipIds) throws EntityNotFoundException {
         int[] degree = new int[nodeCount];
+
         Arrays.fill(degree,-1);
-        PrimitiveLongIterator it = ops.nodesGetForLabel(labelId);
-        int totalCount = nodeCount;
-        runOperations(pool, it, totalCount, ops, new OpsRunner() {
-            public void run(int id) throws EntityNotFoundException {
-                degree[id] = ops.nodeGetDegree(id, Direction.OUTGOING, relationshipId);
+
+        List<Integer[]> degrees = new ArrayList<>();
+
+        for(Integer labelId: labelIds) {
+
+            PrimitiveLongIterator it = ops.nodesGetForLabel(labelId);
+
+            runOperations(pool, it, nodeCount, ops, id -> {
+                for(Integer relationshipId: relationshipIds) {
+
+                    int deg = ops.nodeGetDegree(id, Direction.OUTGOING, relationshipId);
+
+                    if(deg <= 0) {
+                        deg = ops.nodeGetDegree(id, Direction.INCOMING, relationshipId);
+                    }
+
+                    degrees.add(new Integer[] {id, deg});
+                }
+            });
+        }
+
+        degrees.forEach(e -> {
+                if(degree[e[0]] < 0) {
+                    degree[e[0]] = degree[e[1]];
+                } else {
+                    degree[e[0]] += degree[e[1]];
+                }
             }
-        });
+        );
+
         return degree;
     }
 

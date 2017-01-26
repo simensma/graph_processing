@@ -10,10 +10,12 @@
 
     <properties>
         <!-- <neo4j.version>2.3.6</neo4j.version> -->
-        <neo4j.version>3.0.4</neo4j.version>
+        <neo4j.version>3.1.0</neo4j.version>
         <guava.version>18.0</guava.version>
         <jmh.version>1.10.5</jmh.version>
         <fastutil.version>7.0.2</fastutil.version>
+        <jackson.version>1.9.2</jackson.version>
+
     </properties>
 
     <repositories>
@@ -45,6 +47,13 @@
             <artifactId>server-api</artifactId>
             <version>${neo4j.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.jaxrs</groupId>
+            <artifactId>jackson-jaxrs-json-provider</artifactId>
+            <version>2.3.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.neo4j.app</groupId>
             <artifactId>neo4j-server</artifactId>
@@ -78,6 +87,31 @@
             <artifactId>jersey-client</artifactId>
             <version>1.9</version>
         </dependency>
+        <dependency>
+            <groupId>org.codehaus.jackson</groupId>
+            <artifactId>jackson-core-asl</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.codehaus.jackson</groupId>
+            <artifactId>jackson-mapper-asl</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.codehaus.jackson</groupId>
+            <artifactId>jackson-jaxrs</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.codehaus.jackson</groupId>
+            <artifactId>jackson-xc</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
 
         <dependency>
             <groupId>org.openjdk.jmh</groupId>
@@ -105,6 +139,48 @@
                     <target>1.8</target>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>2.3</version>
+                <configuration>
+                    <createDependencyReducedPom>false</createDependencyReducedPom>
+                    <minimizeJar>false</minimizeJar>
+                    <artifactSet>
+                        <excludes>
+                            <exclude>*:*:*:resources</exclude>
+                            <exclude>org.neo4j</exclude>
+                            <exclude>org.neo4j.*</exclude>
+                            <exclude>javax.ws.rs-api</exclude>
+                            <exclude>junit</exclude>
+                            <exclude>org.eclipse.jetty</exclude>
+                            <exclude>io.jetty</exclude>
+                            <exclude>com.sun.jersey</exclude>
+                            <exclude>com.sun.jersey.*</exclude>
+
+                        </excludes>
+                    </artifactSet>
+                    <filters>
+                        <filter>
+                            <artifact>*:*</artifact>
+                            <excludes>
+                                <exclude>META-INF/*.SF</exclude>
+                                <exclude>META-INF/*.DSA</exclude>
+                                <exclude>META-INF/*.RSA</exclude>
+                            </excludes>
+                        </filter>
+                    </filters>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
         </plugins>
     </build>
 

@@ -1,5 +1,6 @@
 package com.maxdemarzi.processing;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.maxdemarzi.processing.centrality.Betweenness;
 import com.maxdemarzi.processing.centrality.Closeness;
 import com.maxdemarzi.processing.centrality.DegreeArrayStorageParallelSPI;
@@ -10,6 +11,7 @@ import com.maxdemarzi.processing.unionfind.UnionFind;
 import com.maxdemarzi.processing.unionfind.UnionFindMapStorage;
 import org.neo4j.graphdb.*;
 import org.neo4j.kernel.api.exceptions.legacyindex.AutoIndexingKernelException;
+import org.neo4j.kernel.impl.logging.LogService;
 import org.neo4j.kernel.internal.GraphDatabaseAPI;
 import org.neo4j.kernel.api.DataWriteOperations;
 import org.neo4j.kernel.api.exceptions.EntityNotFoundException;
@@ -18,11 +20,15 @@ import org.neo4j.kernel.api.exceptions.schema.ConstraintValidationKernelExceptio
 import org.neo4j.kernel.api.exceptions.schema.IllegalTokenNameException;
 import org.neo4j.kernel.api.properties.DefinedProperty;
 import org.neo4j.kernel.impl.core.ThreadToStatementContextBridge;
+import org.neo4j.logging.Log;
+import org.neo4j.server.plugins.PluginTarget;
 
 import javax.ws.rs.*;
 import javax.ws.rs.Path;
 import javax.ws.rs.core.Context;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -33,6 +39,11 @@ public class Service {
     public static final int WRITE_BATCH = 10_000;
     public static final int CPUS = Runtime.getRuntime().availableProcessors();
     static ExecutorService pool = Utils.createPool(CPUS, CPUS*25);
+    private final ObjectMapper objectMapper;
+
+    public Service() {
+        objectMapper = new ObjectMapper();
+    }
 
     @GET
     @Path("/helloworld")
@@ -55,6 +66,8 @@ public class Service {
         return "Warmed up and ready to go!";
     }
 
+
+
     @GET
     @Path("/pagerank/{label}/{type}")
     public String pageRank(@PathParam("label") String label,
@@ -67,6 +80,28 @@ public class Service {
         writeBackResults(db, pageRank);
 
         return "PageRank for " + label + " and " + type + " Completed!";
+    }
+
+    @POST @Consumes("application/json")
+    @Produces("application/json")
+    @Path("/weightedpagerank/")
+    @PluginTarget(GraphDatabaseService.class)
+    public String weightedPageRank(final PageRankConfig config,
+                           @Context GraphDatabaseService db) throws IOException {
+
+
+        LogService logService = ((GraphDatabaseAPI)db).getDependencyResolver().resolveDependency( LogService.class );
+        Log log = logService.getUserLog( getClass() );
+
+        log.info("Performing Pagerank With Config:");
+        log.info(config.toString());
+
+        PageRankMapStorage pageRank = new PageRankMapStorage(db);
+        pageRank.compute(config);
+
+        writeBackResults(db, pageRank);
+
+        return "PageRank Completed!";
     }
 
     @GET
@@ -176,22 +211,20 @@ public class Service {
         List<Future> futures = new ArrayList<>(batches);
         for (int node = 0; node < nodes; node += WRITE_BATCH) {
             final int start = node;
-            Future future = pool.submit(new Runnable() {
-                public void run() {
-                    try (Transaction tx = db.beginTx()) {
-                        DataWriteOperations ops = ctx.get().dataWriteOperations();
-                        for (long i = 0; i < WRITE_BATCH; i++) {
-                            long node = i + start;
-                            if (node >= nodes) break;
-                            double value = algorithm.getResult(node);
-                            if (value > 0) {
-                                ops.nodeSetProperty(node, DefinedProperty.doubleProperty(propertyNameId, value));
-                            }
+            Future future = pool.submit(() -> {
+                try (Transaction tx = db.beginTx()) {
+                    DataWriteOperations ops = ctx.get().dataWriteOperations();
+                    for (long i = 0; i < WRITE_BATCH; i++) {
+                        long node1 = i + start;
+                        if (node1 >= nodes) break;
+                        double value = algorithm.getResult(node1);
+                        if (value > 0) {
+                            ops.nodeSetProperty(node1, DefinedProperty.doubleProperty(propertyNameId, value));
                         }
-                        tx.success();
-                    } catch (AutoIndexingKernelException | ConstraintValidationKernelException | InvalidTransactionTypeKernelException | EntityNotFoundException e) {
-                        e.printStackTrace();
                     }
+                    tx.success();
+                } catch (AutoIndexingKernelException | ConstraintValidationKernelException | InvalidTransactionTypeKernelException | EntityNotFoundException e) {
+                    e.printStackTrace();
                 }
             });
             futures.add(future);

@@ -18,7 +18,7 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 
 public class UnionFindTest {
-    public static final double EXPECTED = 2.0;
+    public static final double EXPECTED = 1.0;
     private GraphDatabaseService db;
     private static Service service;
 
