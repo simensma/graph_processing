@@ -12,8 +12,6 @@ import org.neo4j.kernel.impl.api.RelationshipVisitor;
 import org.neo4j.kernel.impl.core.ThreadToStatementContextBridge;
 
 import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * @author mh
@@ -35,22 +33,18 @@ public class PageRankArrayStorageSPI implements PageRank {
         float[] src = new float[nodes];
         dst = new float[nodes];
 
-        String[] labels = {"Profile", "Project"};
-        String[] types = { "FOLLOWS", "COMMENTED_ON", "LICENSED" };
-
         try ( Transaction tx = db.beginTx()) {
 
             ThreadToStatementContextBridge ctx = this.db.getDependencyResolver().resolveDependency(ThreadToStatementContextBridge.class);
             ReadOperations ops = ctx.get().readOperations();
+            int labelId = ops.labelGetForName(label);
+            int typeId = ops.relationshipTypeGetForName(type);
 
-            Integer[] labelIds = Arrays.stream(labels).map(ops::labelGetForName).toArray(Integer[]::new);
-            Integer[] typeIds = Arrays.stream(types).map(ops::labelGetForName).toArray(Integer[]::new);
-
-            int[] degrees = computeDegrees(ops,labelIds, typeIds);
+            int[] degrees = computeDegrees(ops,labelId, typeId);
 
             RelationshipVisitor<RuntimeException> visitor = new RelationshipVisitor<RuntimeException>() {
                 public void visit(long relId, int relTypeId, long startNode, long endNode) throws RuntimeException {
-                    if (Arrays.stream(typeIds).anyMatch(t -> t == relTypeId)) {
+                    if (relTypeId == typeId) {
                         dst[((int) endNode)] += src[(int) startNode];
                     }
                 }
@@ -78,31 +72,13 @@ public class PageRankArrayStorageSPI implements PageRank {
         Arrays.fill(dst, (float) ONE_MINUS_ALPHA);
     }
 
-    private int[] computeDegrees(ReadOperations ops, Integer[] labelIds, Integer[] relationshipIds) throws EntityNotFoundException {
+    private int[] computeDegrees(ReadOperations ops, int labelId, int relationshipId) throws EntityNotFoundException {
         int[] degrees = new int[nodes];
         Arrays.fill(degrees,-1);
-
-        for(int labelId: labelIds){
-
-            for(int relationshipId: relationshipIds) {
-                PrimitiveLongIterator nodes = ops.nodesGetForLabel(labelId);
-                while (nodes.hasNext()) {
-                    long node = nodes.next();
-
-                    int outDegree = ops.nodeGetDegree(node, Direction.OUTGOING, relationshipId);
-
-                    if(outDegree <= 0){
-                        outDegree = ops.nodeGetDegree(node, Direction.INCOMING, relationshipId);
-                    }
-
-                    if(degrees[((int)node)] < 0) {
-                        degrees[((int)node)] = outDegree;
-                    } else {
-                        degrees[((int) node)] += outDegree;
-                    }
-                }
-            }
-
+        PrimitiveLongIterator nodes = ops.nodesGetForLabel(labelId);
+        while (nodes.hasNext()) {
+            long node = nodes.next();
+            degrees[((int)node)]= ops.nodeGetDegree(node, Direction.OUTGOING, relationshipId);
         }
         return degrees;
     }

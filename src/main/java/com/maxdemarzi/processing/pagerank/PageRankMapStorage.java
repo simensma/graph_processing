@@ -1,28 +1,50 @@
 package com.maxdemarzi.processing.pagerank;
 
 import com.maxdemarzi.processing.NodeCounter;
-import it.unimi.dsi.fastutil.doubles.Double2DoubleOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2DoubleMap;
-import it.unimi.dsi.fastutil.longs.Long2DoubleOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2LongMap;
-import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.*;
 import org.neo4j.graphdb.*;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
-import java.util.stream.StreamSupport;
-
+/**
+ *
+ * - Weighted PageRank
+ *
+ * Instead of distributing the PageRank score of a node evenly to all its "outgoing neighbours",
+ * this approach distributes the node's PageRank based on the normalized weight of the out-edge between them instead
+ *
+ * The original PageRank algorithm as outlined by Page and Brin:
+ *
+ * PR(Ni) = (1-α) + α*Σ(Nj ϵ M(Ni)) PR(Nj)/L(Nj)
+ *
+ * N1, N2,..., Nn are the nodes we want to calculate a score for
+ * PR(Ni) is the pagerank for Node Ni
+ * α is the damping factor
+ * N is the total number of nodes we want to calculate a score for
+ * M(Ni) is the set of nodes that have an outbound edge to node i
+ * L(Nj) is the number of outbound edge to node Nj
+ *
+ * To accommodate for weighted edges, we modify the original PageRank algorithm as follows:
+ *
+ * PR(Ni) = (1-α) + α*Σ(Nj ϵ M(Ni)) PR(Nj) * LW(Nj, Ni)/SUM(LW(Nj))
+ *
+ * LW(Nj, Ni) is the weight of the edge going from node Nj to Ni
+ * SUM(LW(Nj)) is the sum of the weights of all the outgoing relationships from Nj
+ *
+ * REF: The Anatomy of a Large-Scale Hypertextual Web Search Engine - Brin, Page, 1999
+ */
 public class PageRankMapStorage implements PageRank {
     private final GraphDatabaseService db;
     private final int nodes;
-    private Long2DoubleMap dstMap;
+    private final NodeUtils nodeUtils;
+    private Long2DoubleMap pageranks = new Long2DoubleOpenHashMap();
+    private static final double DEFAULT_EDGE_WEIGHT = 1.0;
 
     public PageRankMapStorage(GraphDatabaseService db) {
         this.db = db;
+        this.nodeUtils = new NodeUtils(db);
         this.nodes = new NodeCounter().getNodeCount(db);
     }
 
@@ -31,80 +53,91 @@ public class PageRankMapStorage implements PageRank {
         compute(new PageRankConfig(new String[]{label}, new String[]{type}, iterations));
     }
 
+
+    /**
+     * Iteratively calculates the weighted PageRank of the nodes with labels config.getLables()
+     * based on the relationships specified by config.getRelationships(), and the relationship weights
+     * specified by config.getWeights()
+     *
+     * @param config The configuration to calculate PageRanks on
+     *      config.getLables() -> The labels of the nodes we want to include in the calculation
+     *               Example: ["Profile", "Project"]
+     *      config.getRelationships() -> The relationship types that should be included in the PageRank calculation
+     *               Example: ["COMMENTED_ON", "FOLLOWS", "LIKES"]
+     *      config.getIterations() -> The number of iterations we should run the algorithm for.
+     *      config.getWeights() -> The weights of each relationship type.
+     *               Default value for a relationship type is 1.0
+     *               Example: {
+     *                  "COMMENTED_ON": 0.5,
+     *                  "FOLLOWS": 5.0,
+     *                  "LIKES": 3.0
+     *               }
+     */
     public void compute(PageRankConfig config) {
 
         try ( Transaction tx = db.beginTx()) {
-            List<Node> nodes = initializeNodes(config);
-            dstMap = new Long2DoubleOpenHashMap(emptyNodeMap(nodes));
-            Long2DoubleOpenHashMap srcMap = new Long2DoubleOpenHashMap(emptyNodeMap(nodes));
+            List<Node> nodes = nodeUtils.getNodesWithLabels(config.getLabels());
 
-            List<RelationshipType> relTypes = initializeRelationshipTypes(config);
-            Long2DoubleOpenHashMap weightMap = new Long2DoubleOpenHashMap(weightMap(config, nodes));
+            RelationshipType[] relTypes = nodeUtils.getRelationshipTypesWithLabels(config.getRelationships());
+            List<RelationshipType> relTypesList = Arrays.asList(relTypes);
+
+            Map<RelationshipType, Double> relWeights = nodeUtils.getRelationshipTypeWeights(relTypes, config.getWeights(), DEFAULT_EDGE_WEIGHT);
+
+            Long2DoubleOpenHashMap totalWeights = new Long2DoubleOpenHashMap(nodeUtils.getEdgeWeightSumForNodes(nodes, relTypes, relWeights));
 
             for (int iteration = 0; iteration < config.getIterations(); iteration++) {
-                perform_iteration(config, srcMap, weightMap, nodes, relTypes);
+                performIteration(totalWeights, nodes, relTypesList, relWeights);
             }
 
             tx.success();
         }
     }
 
-    private Map<Long, Double> emptyNodeMap(List<Node> nodes) {
-        return nodes.stream().collect(Collectors.toMap(Node::getId, c -> 0.0));
-    }
-
-    private List<RelationshipType> initializeRelationshipTypes(PageRankConfig config) {
-        return Arrays.stream(config.getRelationships())
-                .map(RelationshipType::withName)
-                .collect(Collectors.toList());
-    }
-
-    private Map<Long, Double> weightMap(PageRankConfig config, List<Node> nodes) {
-
-        RelationshipType[] types = Arrays.stream(config.getRelationships())
-                .map(RelationshipType::withName)
-                .toArray(RelationshipType[]::new);
-
-        return nodes.stream().collect(Collectors.toMap(Node::getId, n ->
-                StreamSupport.stream(n.getRelationships(Direction.OUTGOING, types).spliterator(), false)
-                        .mapToDouble((rel) ->
-                                config.getWeights().get(rel.getType().name())
-                        ).sum()
-        ));
-    }
-
-    private List<Node> initializeNodes(PageRankConfig config) {
-        return Arrays.stream(config.getLabels())
-                .flatMap((l) -> db.findNodes(Label.label(l)).stream())
-                .collect(Collectors.toList());
-    }
-
     /**
-     * PR(i)
+     * Performs an iteration (t) of the weighted PageRank algorithm
+     *
+     *  PR(Ni; 0) = 1 - α
+     *  PR(Ni; t + 1) = (1-α) + α*Σ(Nj ϵ M(Ni)) PR(Nj; t) * LW(Nj, Ni)/SUM(LW(Nj))
+     *
+     * @param totalWeights Map: (NodeId -> sum of the weight of the outgoing relationships for that node)
+     * @param nodes List of all Nodes to be considered
+     * @param relTypes List off all relationships to be considered
+     * @param relWeights Relationship weights for all relationships to be considered
      */
-    private void perform_iteration(PageRankConfig config, Long2DoubleMap srcMap, Long2DoubleOpenHashMap weightMap, List<Node> nodes, List<RelationshipType> relTypes) {
+    private void performIteration(Long2DoubleOpenHashMap totalWeights, List<Node> nodes, List<RelationshipType> relTypes, Map<RelationshipType, Double> relWeights) {
+        Long2DoubleOpenHashMap srcMap = new Long2DoubleOpenHashMap();
+
+        // Precalculate α * PR(Nj;t)
         nodes.forEach(node -> {
-            srcMap.put(node.getId(), ALPHA * dstMap.get(node.getId()));
-            dstMap.put(node.getId(), ONE_MINUS_ALPHA);
+            srcMap.put(node.getId(), ALPHA * pageranks.get(node.getId()));
+            pageranks.put(node.getId(), ONE_MINUS_ALPHA);
         });
 
+        // Transfer scores between nodes that are connected
         db.getAllRelationships().stream()
             .filter(rel ->  relTypes.contains(rel.getType()))
-            .forEach(rel -> {
-                Node startNode = rel.getStartNode();
-                Node endNode = rel.getEndNode();
+            .forEach(rel -> transferWeightsForRelationship(rel, totalWeights, srcMap, relWeights));
+    }
 
-                double totalStartNodeWeights = weightMap.get(startNode.getId());
-                double relationshipWeight = config.getWeights().get(rel.getType().name());
+    private void transferWeightsForRelationship(Relationship rel, Long2DoubleOpenHashMap totalWeights, Long2DoubleMap srcMap, Map<RelationshipType, Double> relWeights) {
+        Node startNode = rel.getStartNode();
+        Node endNode = rel.getEndNode();
 
-                dstMap.put(startNode.getId(), (dstMap.get(endNode.getId()) + srcMap.get(startNode.getId()) * relationshipWeight / totalStartNodeWeights ));
-            });
+        double relationshipWeight = relWeights.get(rel.getType());
+
+        double totalStartNodeWeights = totalWeights.get(startNode.getId());
+        double currentStartNodeWeight = srcMap.get(startNode.getId());
+        double currentEndNodeWeight = pageranks.get(endNode.getId());
+
+        // Transfer α * PR(startNode) * LW(rel)/SUM(LW(startNode)) from startNode to endNode
+        pageranks.put(endNode.getId(), currentEndNodeWeight + currentStartNodeWeight*relationshipWeight / totalStartNodeWeights);
+
     }
 
 
     @Override
     public double getResult(long node) {
-        return dstMap != null ? dstMap.getOrDefault(node, -1D) : -1;
+        return pageranks != null ? pageranks.getOrDefault(node, -1D) : -1;
     }
 
     @Override

@@ -42,30 +42,30 @@ public class PageRankTest {
         db.shutdown();
     }
 
-//    @Test
-//    public void shouldGetPageRank() throws IOException {
-//        String response = service.pageRank("", db);
-//        assertEquals("PageRank for Person and KNOWS Completed!", response);
-//    }
-//
-//    @Test
-//    public void shouldGetPageRankArrayStorageSPI() throws IOException {
-//        PageRank pageRank = new PageRankArrayStorageSPI(db);
-//        pageRank.compute("Person", "KNOWS", 20);
-//        long id = (long) getEntry("Tom Hanks").get("id");
-//        assertEquals(EXPECTED, pageRank.getResult(id),0.1D);
-//        // dump(pageRank);
-//    }
-//
-//    @Test
-//    public void shouldGetPageRankArrayStorage() throws IOException {
-//        PageRank pageRank = new PageRankArrayStorage(db);
-//        pageRank.compute("Person", "KNOWS", 20);
-//        long id = (long) getEntry("Tom Hanks").get("id");
-//        assertEquals(EXPECTED, pageRank.getResult(id),0.1D);
-//        //  dump(pageRank);
-//    }
-//
+    @Test
+    public void shouldGetPageRank() throws IOException {
+        String response = service.pageRank("Person", "KNOWS", 20, db);
+        assertEquals("PageRank for Person and KNOWS Completed!", response);
+    }
+
+    @Test
+    public void shouldGetPageRankArrayStorageSPI() throws IOException {
+        PageRank pageRank = new PageRankArrayStorageSPI(db);
+        pageRank.compute("Person", "KNOWS", 20);
+        long id = (long) getEntry("Tom Hanks").get("id");
+        assertEquals(EXPECTED, pageRank.getResult(id),0.1D);
+        // dump(pageRank);
+    }
+
+    @Test
+    public void shouldGetPageRankArrayStorage() throws IOException {
+        PageRank pageRank = new PageRankArrayStorage(db);
+        pageRank.compute("Person", "KNOWS", 20);
+        long id = (long) getEntry("Tom Hanks").get("id");
+        assertEquals(EXPECTED, pageRank.getResult(id),0.1D);
+        //  dump(pageRank);
+    }
+
 
     @Test
     public void shouldGetPageRankMapStorage() throws IOException {
@@ -84,11 +84,12 @@ public class PageRankTest {
 
         config.setIterations(20);
 
-
         pageRank.compute(config);
+
         long id = (long) getEntry("Tom Hanks").get("id");
+
         assertEquals(EXPECTED, pageRank.getResult(id),0.1D);
-        // dump(pageRank);
+//        dump(pageRank);
     }
 
     private void dump(PageRank pageRank) {

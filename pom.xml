@@ -15,6 +15,7 @@
         <jmh.version>1.10.5</jmh.version>
         <fastutil.version>7.0.2</fastutil.version>
         <jackson.version>1.9.2</jackson.version>
+        <dockermaven.version>0.4.13</dockermaven.version>
 
     </properties>
 
@@ -137,6 +138,22 @@
                 <configuration>
                     <source>1.8</source>
                     <target>1.8</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>com.spotify</groupId>
+                <artifactId>docker-maven-plugin</artifactId>
+                <version>${dockermaven.version}</version>
+                <configuration>
+                    <imageName>graphprocessing</imageName>
+                    <dockerDirectory>docker</dockerDirectory>
+                    <resources>
+                        <resource>
+                            <targetPath>/</targetPath>
+                            <directory>${project.build.directory}</directory>
+                            <include>${project.build.finalName}.jar</include>
+                        </resource>
+                    </resources>
                 </configuration>
             </plugin>
             <plugin>
