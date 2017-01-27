@@ -81,7 +81,7 @@ Hmpf.
         CREATE (a1)-[:KNOWS]->(coActors);
 
 8. Call the pagerank endpoint:
-        curl http://neo4j:neo4j@localhost:7474/service/v1/pagerank/Person/KNOWS on Linux
+        curl http://neo4j:swordfish@localhost:7474/service/v1/pagerank/Person/KNOWS on Linux
 
         or
 
@@ -134,7 +134,7 @@ curl -X POST -H "Content-Type: application/json" -d '{
   "weights": {
     "KNOWS": 1.0,
   }
-}' "http://neo4j:neo4j@localhost:7474/service/v1/weightedpagerank/"
+}' "http://neo4j:swordfish@localhost:7474/service/v1/weightedpagerank/"
 ```
 
 # Performance
