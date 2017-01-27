@@ -1,6 +1,5 @@
 package com.maxdemarzi.processing;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.maxdemarzi.processing.centrality.Betweenness;
 import com.maxdemarzi.processing.centrality.Closeness;
 import com.maxdemarzi.processing.centrality.DegreeArrayStorageParallelSPI;
@@ -28,7 +27,6 @@ import javax.ws.rs.Path;
 import javax.ws.rs.core.Context;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -39,11 +37,6 @@ public class Service {
     public static final int WRITE_BATCH = 10_000;
     public static final int CPUS = Runtime.getRuntime().availableProcessors();
     static ExecutorService pool = Utils.createPool(CPUS, CPUS*25);
-    private final ObjectMapper objectMapper;
-
-    public Service() {
-        objectMapper = new ObjectMapper();
-    }
 
     @GET
     @Path("/helloworld")

@@ -55,12 +55,12 @@ public class PageRankMapStorage implements PageRank {
 
 
     /**
-     * Iteratively calculates the weighted PageRank of the nodes with labels config.getLables()
+     * Iteratively calculates the weighted PageRank of the nodes with labels config.getLabels()
      * based on the relationships specified by config.getRelationships(), and the relationship weights
      * specified by config.getWeights()
      *
      * @param config The configuration to calculate PageRanks on
-     *      config.getLables() -> The labels of the nodes we want to include in the calculation
+     *      config.getLabels() -> The labels of the nodes we want to include in the calculation
      *               Example: ["Profile", "Project"]
      *      config.getRelationships() -> The relationship types that should be included in the PageRank calculation
      *               Example: ["COMMENTED_ON", "FOLLOWS", "LIKES"]

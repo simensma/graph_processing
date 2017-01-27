@@ -5,6 +5,7 @@ import org.neo4j.graphdb.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -37,11 +38,12 @@ public class NodeUtils {
     private double getEdgeWeightSumForNode(Node n, RelationshipType[] relTypes, Map<RelationshipType, Double> relWeights) {
         return StreamSupport.stream(n.getRelationships(Direction.OUTGOING, relTypes).spliterator(), false)
                 .filter(r -> relWeights.containsKey(r.getType()))
-                .mapToDouble(r -> relWeights.get(r.getType())).sum();
+                .mapToDouble(r -> relWeights.get(r.getType()))
+                .sum();
     }
 
     public Map<RelationshipType, Double> getRelationshipTypeWeights(RelationshipType[] relTypes, Map<String, Double> weights, double defaultWeight) {
-        return Arrays.stream(relTypes).collect(Collectors.toMap(r->r, r -> {
+        return Arrays.stream(relTypes).collect(Collectors.toMap(Function.identity(), r -> {
             if(weights.containsKey(r.name())) {
                 return weights.get(r.name());
             }
